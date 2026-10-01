@@ -249,6 +249,10 @@ module.exports = class AutoFolderCollapsePlugin extends Plugin {
     if (!explorer)
       return;
     const folderPath = file.parent ? file.parent.path : "";
+    if (folderPath === "") {
+      this.collapseAllTopFolders();
+      return;
+    }
     const shouldStayOpen = (path) => {
       if (!path)
         return false;
