@@ -4,11 +4,15 @@
 	box-shadow: 0 0 0 1px var(--color-red) !important;
 }
 
+.afc-validation-relative {
+	position: relative;
+}
+
 /* Validation tooltip shown under the input while the error is active. */
 .afc-validation-tooltip {
 	position: absolute;
-	top: calc(100% + 4px);
-	left: 0;
+	top: var(--afc-vt-top, calc(100% + 4px));
+	left: var(--afc-vt-left, 0px);
 	z-index: var(--layer-tooltip);
 	max-width: 260px;
 	padding: 4px 8px;
@@ -20,6 +24,16 @@
 	line-height: var(--line-height-tight);
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 	pointer-events: none;
+}
+
+/* Add-folder modal. */
+.afc-modal-desc {
+	margin-top: 0;
+	color: var(--text-muted);
+}
+
+.afc-modal-input-wrap .afc-modal-input {
+	width: 100%;
 }
 
 /* Reserve the settings scrollbar gutter so the card width matches pages that

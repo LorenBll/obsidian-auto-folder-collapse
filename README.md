@@ -40,9 +40,11 @@ The plugin offers the following features, configured in **Settings → Auto Fold
 
 ### Immune folders
 
-Immune folders ignore the automatic collapse behavior. Add a folder to **Always collapsed** to keep it collapsed even when a file inside it is open. Add a folder to **Always expanded** to keep it expanded no matter which file is open or how long you are inactive.
+Immune folders ignore the automatic collapse behavior. Use **Add folder** to select a folder from the vault or type its path, adding it to **Always collapsed** to keep it collapsed even when a file inside it is open, or to **Always expanded** to keep it expanded no matter which file is open or how long you are inactive.
 
 Every parent folder of an added folder inherits the behavior: adding one folder covers its whole subtree of ancestors.
+
+Immune folders also resist manual toggling in the file explorer: an **Always collapsed** folder cannot be expanded, and an **Always expanded** folder cannot be collapsed.
 
 Enable or disable either feature at any time; the change takes effect immediately.
 

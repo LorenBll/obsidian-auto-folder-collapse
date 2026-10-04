@@ -5,7 +5,7 @@ if you want to view the source, please visit the github repository of this plugi
 
 
 // main.js
-var { Plugin, PluginSettingTab, SettingGroup } = require("obsidian");
+var { Plugin, PluginSettingTab, SettingGroup, AbstractInputSuggest, ButtonComponent, Modal, TextComponent, TFolder } = require("obsidian");
 var DEFAULT_SETTINGS = {
   inactivitySeconds: 300,
   exclusiveAccordionEnabled: false,
@@ -93,22 +93,54 @@ module.exports = class AutoFolderCollapsePlugin extends Plugin {
       return;
     this.observer = new MutationObserver((muts) => {
       for (const m of muts) {
-        if (m.type === "attributes" && m.attributeName === "class" && m.target.classList.contains("is-collapsed")) {
-          this.collapseChildFolders(m.target);
+        if (m.type !== "attributes" || m.attributeName !== "class")
+          continue;
+        const el = m.target;
+        const nowCollapsed = el.classList.contains("is-collapsed");
+        const wasCollapsed = !!(m.oldValue && m.oldValue.includes("is-collapsed"));
+        if (wasCollapsed === nowCollapsed)
+          continue;
+        const path = this.getFolderPath(el);
+        if (nowCollapsed) {
+          if (this.isAlwaysExpanded(path)) {
+            this.expandImmune(el);
+          } else {
+            this.collapseChildFolders(el);
+          }
+        } else if (this.isAlwaysCollapsed(path)) {
+          this.collapseImmune(el);
         }
       }
     });
     this.observer.observe(explorer, {
       attributes: true,
+      attributeOldValue: true,
       subtree: true,
       attributeFilter: ["class"]
     });
     this.clickHandler = (ev) => {
-      if (!this.settings.exclusiveAccordionEnabled)
-        return;
       const sourceEl = ev.target instanceof Element ? ev.target : null;
       const target = sourceEl ? sourceEl.closest(".nav-folder, .tree-item-folder") : null;
       if (!target)
+        return;
+      if (ev.isTrusted) {
+        const titleEl = target.querySelector(".nav-folder-title, .tree-item-self");
+        const isTitleClick = !!titleEl && (sourceEl === titleEl || titleEl.contains(sourceEl));
+        if (isTitleClick) {
+          const path = this.getFolderPath(target);
+          if (this.isAlwaysCollapsed(path) && target.classList.contains("is-collapsed")) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+          }
+          if (this.isAlwaysExpanded(path) && !target.classList.contains("is-collapsed")) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+          }
+        }
+      }
+      if (!this.settings.exclusiveAccordionEnabled)
         return;
       setTimeout(() => {
         if (!target.classList.contains("is-collapsed")) {
@@ -302,6 +334,18 @@ module.exports = class AutoFolderCollapsePlugin extends Plugin {
     );
     return (_a = title == null ? void 0 : title.getAttribute("data-path")) != null ? _a : "";
   }
+  collapseImmune(el) {
+    if (!el.classList.contains("is-collapsed")) {
+      var _a;
+      (_a = el.querySelector(ICON_SELECTORS)) == null ? void 0 : _a.click();
+    }
+  }
+  expandImmune(el) {
+    if (el.classList.contains("is-collapsed")) {
+      var _a;
+      (_a = el.querySelector(ICON_SELECTORS)) == null ? void 0 : _a.click();
+    }
+  }
   isImmune(folderPath, list) {
     if (!folderPath)
       return false;
@@ -314,6 +358,154 @@ module.exports = class AutoFolderCollapsePlugin extends Plugin {
   }
   isAlwaysCollapsed(folderPath) {
     return this.isImmune(folderPath, this.settings.alwaysCollapsedFolders || []);
+  }
+};
+var FolderSuggest = class extends AbstractInputSuggest {
+  constructor(app, inputEl) {
+    super(app, inputEl);
+    this.limit = 50;
+  }
+  getSuggestions(query) {
+    const q = query.trim().toLowerCase();
+    if (!q)
+      return [];
+    const out = [];
+    for (const file of this.app.vault.getAllLoadedFiles()) {
+      if (file instanceof TFolder && file.path.toLowerCase().includes(q)) {
+        out.push(file.path);
+      }
+    }
+    return out.slice(0, this.limit || 50);
+  }
+  renderSuggestion(value, el) {
+    el.setText(value);
+  }
+};
+var AddFolderModal = class extends Modal {
+  constructor(app, onAdd) {
+    super(app);
+    this.onAdd = onAdd;
+    this.errorTimer = 0;
+    this.errorInput = null;
+    this.errorTooltip = null;
+    this.errorScrollContainer = null;
+    this.inputEl = null;
+    this.suggest = null;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: "Add folder" });
+    contentEl.createEl("p", {
+      cls: "afc-modal-desc",
+      text: 'Select a folder from the vault, or type its path relative to the vault root, for example "Projects/Private".'
+    });
+    const inputWrap = contentEl.createDiv({ cls: "afc-modal-input-wrap" });
+    const input = new TextComponent(inputWrap);
+    input.setPlaceholder("e.g. Projects/Private");
+    input.inputEl.addClass("afc-modal-input");
+    this.inputEl = input.inputEl;
+    this.suggest = new FolderSuggest(this.app, input.inputEl);
+    this.suggest.onSelect((value) => {
+      input.setValue(value);
+      input.inputEl.focus();
+    });
+    input.inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        this.submit();
+      }
+    });
+    const buttons = contentEl.createDiv({ cls: "modal-button-container" });
+    new ButtonComponent(buttons).setButtonText("Cancel").onClick(() => this.close());
+    new ButtonComponent(buttons).setButtonText("Add").setCta().onClick(() => this.submit());
+  }
+  onClose() {
+    this.clearError();
+    if (this.suggest)
+      this.suggest.close();
+    this.contentEl.empty();
+  }
+  submit() {
+    const input = this.inputEl;
+    if (!input)
+      return;
+    const value = input.value.trim();
+    if (!value) {
+      this.showRequiredError(input, "Folder path is required.");
+      return;
+    }
+    this.onAdd(value);
+    this.close();
+  }
+  getScrollContainer(el) {
+    let node = el;
+    while (node) {
+      const overflowY = window.getComputedStyle(node).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll")
+        return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+  onErrorScroll() {
+    const input = this.errorInput;
+    const container = this.errorScrollContainer;
+    if (!input || !container)
+      return;
+    const rect = input.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    const visible = rect.bottom >= cRect.top && rect.top <= cRect.bottom && rect.right >= cRect.left && rect.left <= cRect.right;
+    if (!visible)
+      this.clearError();
+  }
+  showRequiredError(input, message) {
+    this.clearError();
+    const parent = input.parentElement;
+    if (!parent)
+      return;
+    parent.addClass("afc-validation-relative");
+    input.addClass("afc-input-error");
+    const tooltip = parent.createDiv({ cls: "afc-validation-tooltip" });
+    tooltip.setText(message);
+    const container = this.getScrollContainer(input);
+    if (container) {
+      this.errorScrollContainer = container;
+      container.addEventListener("scroll", this.onErrorScroll);
+      const cRect = container.getBoundingClientRect();
+      const tRect = tooltip.getBoundingClientRect();
+      let left = input.offsetLeft;
+      let top = (parent.clientHeight || 0) + 4;
+      if (tRect.left < cRect.left)
+        left += cRect.left - tRect.left;
+      if (tRect.right > cRect.right)
+        left -= tRect.right - cRect.right;
+      if (tRect.bottom > cRect.bottom)
+        top -= tRect.bottom - cRect.bottom;
+      tooltip.setCssProps({
+        "--afc-vt-left": left + "px",
+        "--afc-vt-top": top + "px"
+      });
+    }
+    this.errorInput = input;
+    this.errorTooltip = tooltip;
+    this.errorTimer = window.setTimeout(() => this.clearError(), 3e3);
+    input.addEventListener("input", () => this.clearError(), { once: true });
+    input.addEventListener("blur", () => this.clearError(), { once: true });
+  }
+  clearError() {
+    window.clearTimeout(this.errorTimer);
+    if (this.errorInput) {
+      this.errorInput.removeClass("afc-input-error");
+      this.errorInput = null;
+    }
+    if (this.errorTooltip && this.errorTooltip.parentElement) {
+      this.errorTooltip.parentElement.removeChild(this.errorTooltip);
+    }
+    this.errorTooltip = null;
+    if (this.errorScrollContainer) {
+      this.errorScrollContainer.removeEventListener("scroll", this.onErrorScroll);
+      this.errorScrollContainer = null;
+    }
   }
 };
 var AutoFolderCollapseSettingTab = class extends PluginSettingTab {
@@ -329,7 +521,6 @@ var AutoFolderCollapseSettingTab = class extends PluginSettingTab {
     }
     const scrollTop = this.settingsScrollEl ? this.settingsScrollEl.scrollTop : 0;
     containerEl.empty();
-    this.clearRequiredError();
     new SettingGroup(containerEl).addSetting(
       (setting) => setting.setName("Auto collapse after inactivity").setDesc("Collapse all folders after this many seconds of inactivity. Set the slider to 0 seconds to disable.").addSlider(
         (slider) => slider.setLimits(0, 600, 5).setValue(this.plugin.settings.inactivitySeconds).setDynamicTooltip().onChange(async (value) => {
@@ -374,34 +565,25 @@ var AutoFolderCollapseSettingTab = class extends PluginSettingTab {
     super.hide();
   }
   addFolderList(group, key, name, desc) {
-    let textComponent = null;
     group.addSetting((setting) => {
       setting.settingEl.addClass("afc-folder-setting");
-      return setting.setName(name).setDesc(desc).addText((text) => {
-        textComponent = text;
-        text.setPlaceholder("e.g. dashboards/ or **/templates/*.md");
-        text.inputEl.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            this.addFolder(key, textComponent);
-          }
-        });
-      }).addButton(
-        (btn) => btn.setButtonText("Add").setCta().onClick(() => this.addFolder(key, textComponent))
+      return setting.setName(name).setDesc(desc).addButton(
+        (btn) => btn.setButtonText("Add folder").setCta().onClick(() => {
+          new AddFolderModal(this.app, (path) => {
+            this.addFolder(key, path);
+          }).open();
+        })
       );
     });
     this.renderFolderTags(group.listEl, key);
   }
-  addFolder(key, text) {
-    const value = text ? text.getValue().trim().replace(/^\/+|\/+$/g, "") : "";
-    if (!value) {
-      if (text)
-        this.showRequiredError(text, "Folder path is required.");
+  addFolder(key, value) {
+    const cleaned = (value || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!cleaned)
       return;
-    }
-    if (this.plugin.settings[key].includes(value))
+    if (this.plugin.settings[key].includes(cleaned))
       return;
-    this.plugin.settings[key].push(value);
+    this.plugin.settings[key].push(cleaned);
     this.plugin.saveSettings().then(() => this.display());
   }
   renderFolderTags(listEl, key) {
@@ -436,40 +618,5 @@ var AutoFolderCollapseSettingTab = class extends PluginSettingTab {
       node = node.parentElement;
     }
     return null;
-  }
-  showRequiredError(text, message) {
-    this.clearRequiredError();
-    const inputEl = text.inputEl;
-    inputEl.addClass("afc-input-error");
-    const tooltip = document.createElement("div");
-    tooltip.addClass("afc-validation-tooltip");
-    tooltip.setText(message);
-    const parent = inputEl.parentElement;
-    if (parent) {
-      parent.style.position = "relative";
-      tooltip.style.left = inputEl.offsetLeft + "px";
-      parent.appendChild(tooltip);
-    }
-    this.requiredErrorInput = inputEl;
-    this.requiredErrorTooltip = tooltip;
-    this.requiredErrorParent = parent;
-    this.requiredErrorTimer = window.setTimeout(() => this.clearRequiredError(), 3e3);
-    inputEl.addEventListener("input", () => this.clearRequiredError(), { once: true });
-    inputEl.addEventListener("blur", () => this.clearRequiredError(), { once: true });
-  }
-  clearRequiredError() {
-    window.clearTimeout(this.requiredErrorTimer);
-    if (this.requiredErrorInput) {
-      this.requiredErrorInput.removeClass("afc-input-error");
-      this.requiredErrorInput = null;
-    }
-    if (this.requiredErrorTooltip && this.requiredErrorTooltip.parentElement) {
-      this.requiredErrorTooltip.parentElement.removeChild(this.requiredErrorTooltip);
-    }
-    this.requiredErrorTooltip = null;
-    if (this.requiredErrorParent) {
-      this.requiredErrorParent.style.position = "";
-      this.requiredErrorParent = null;
-    }
   }
 };
