@@ -562,8 +562,10 @@ var AutoFolderCollapseSettingTab = class extends PluginSettingTab {
     super.hide();
   }
   addFolderList(group, key, name, desc) {
+    let settingEl = null;
     group.addSetting((setting) => {
       setting.settingEl.addClass("afc-folder-setting");
+      settingEl = setting.settingEl;
       return setting.setName(name).setDesc(desc).addButton(
         (btn) => btn.setButtonText("Add folder").setCta().onClick(() => {
           new AddFolderModal(this.app, (path) => {
@@ -572,7 +574,7 @@ var AutoFolderCollapseSettingTab = class extends PluginSettingTab {
         })
       );
     });
-    this.renderFolderTags(group.listEl, key);
+    this.renderFolderTags(settingEl, key);
   }
   addFolder(key, value) {
     const cleaned = (value || "").trim().replace(/^\/+|\/+$/g, "");
@@ -583,10 +585,9 @@ var AutoFolderCollapseSettingTab = class extends PluginSettingTab {
     this.plugin.settings[key].push(cleaned);
     this.plugin.saveSettings().then(() => this.display());
   }
-  renderFolderTags(listEl, key) {
+  renderFolderTags(containerEl, key) {
     const folders = this.plugin.settings[key] || [];
-    const cls = key === "alwaysCollapsedFolders" ? "afc-folder-tags afc-folder-tags-collapsed" : "afc-folder-tags";
-    const tagsContainer = listEl.createDiv({ cls });
+    const tagsContainer = containerEl.createDiv({ cls: "afc-folder-tags" });
     if (folders.length === 0) {
       tagsContainer.createSpan({ cls: "afc-folder-empty", text: "No folders added." });
       return;
