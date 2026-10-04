@@ -538,9 +538,6 @@ var AutoFolderCollapseSettingTab = class extends PluginSettingTab {
       )
     );
     const immuneGroup = new SettingGroup(containerEl).setHeading("Immune folders").addClass("afc-immune-group");
-    immuneGroup.addSetting(
-      (setting) => setting.setName("How folder insertion works").setDesc('Insert a folder by its path relative to the vault root, for example "Projects/Private". An inserted folder keeps its immunity no matter which file is open. Every folder that contains it inherits the immunity, so a single entry covers the inserted folder and all its parent folders.')
-    );
     this.addFolderList(
       immuneGroup,
       "alwaysCollapsedFolders",
